@@ -85,14 +85,14 @@ class _AppIcon extends StatelessWidget {
         style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.accent),
       ),
     );
-    final icon = entry.app.icon;
+    final icon = entry.icon;
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.icon),
       child: SizedBox.square(
         dimension: 64,
         child: icon == null
             ? letter
-            : Image.network(
+            : Image.file(
                 icon,
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.medium,
