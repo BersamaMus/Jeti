@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
+import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'catalog.dart';
 import 'installed.dart';
@@ -36,6 +39,9 @@ class AppEntry {
   AppEntry(this.app);
 
   final CatalogApp app;
+
+  /// The app's icon, saved from the catalog's link.
+  File? icon;
   InstalledApp? installed;
   Release? latest;
 
@@ -114,6 +120,7 @@ class AppsController extends ChangeNotifier {
       entries = [
         for (final app in catalog.apps)
           AppEntry(app)
+            ..icon = previous[app.id]?.icon
             ..latest = previous[app.id]?.latest
             ..checking = true,
       ];
@@ -127,7 +134,32 @@ class AppsController extends ChangeNotifier {
     loading = false;
     notifyListeners();
 
-    await Future.wait([for (final e in entries) _check(e), _checkJeti()]);
+    await Future.wait([for (final e in entries) ...[_check(e), _loadIcon(e)], _checkJeti()]);
+  }
+
+  /// Shows the icon saved last time straight away, then fetches it again in
+  /// case it changed (or failed before). Without a connection the saved one stays.
+  Future<void> _loadIcon(AppEntry entry) async {
+    final url = entry.app.icon;
+    if (url == null) return;
+    final file = File('${(await getApplicationSupportDirectory()).path}\\icons\\${entry.app.id}.png');
+    if (entry.icon == null && await file.exists()) {
+      entry.icon = file;
+      notifyListeners();
+    }
+    try {
+      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200 || response.bodyBytes.isEmpty) return;
+      if (await file.exists() && listEquals(await file.readAsBytes(), response.bodyBytes)) return;
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(response.bodyBytes);
+      // The image cache knows the file by its path, so it's told it changed.
+      await FileImage(file).evict();
+      entry.icon = file;
+      notifyListeners();
+    } catch (_) {
+      // Keeps the saved icon, or the app's first letter.
+    }
   }
 
   /// Rereads what's installed, e.g. after an app is installed or removed
