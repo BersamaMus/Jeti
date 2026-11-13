@@ -91,3 +91,9 @@ ThemeData buildTheme() {
     dividerTheme: const DividerThemeData(color: AppColors.divider, space: 1),
   );
 }
+
+/// Below this width (a phone, or a narrow window), cards stack their button
+/// under the text instead of beside it.
+const narrowWidth = 600.0;
+
+bool isNarrow(BuildContext context) => MediaQuery.sizeOf(context).width < narrowWidth;

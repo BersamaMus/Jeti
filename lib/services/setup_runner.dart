@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'releases.dart';
@@ -16,16 +17,16 @@ class SetupException implements Exception {
   String toString() => message;
 }
 
-/// Downloads [release]'s installer into Jeti's temp folder as [fileName], and
+/// Downloads [release]'s installer (or APK) into Jeti's temp folder as [fileName], and
 /// checks it against the hash GitHub lists for it. [onProgress] gets 0 to 1.
 Future<File> downloadInstaller(
   Release release,
   String fileName, {
   required void Function(double progress) onProgress,
 }) async {
-  final folder = Directory('${(await getTemporaryDirectory()).path}\\Jeti');
+  final folder = Directory(p.join((await getTemporaryDirectory()).path, 'Jeti'));
   await folder.create(recursive: true);
-  final file = File('${folder.path}\\$fileName');
+  final file = File(p.join(folder.path, fileName));
 
   final client = http.Client();
   try {
@@ -85,7 +86,9 @@ Future<void> runInstaller(File setup, {required bool allUsers, List<String> extr
     ]);
   } on ProcessException {
     // Windows refuses to start it, e.g. when its admin prompt is declined.
-    throw SetupException(allUsers ? 'It needs admin rights to update, which weren\'t given.' : "The installer couldn't start.");
+    throw SetupException(
+      allUsers ? 'It needs admin rights to update, which weren\'t given.' : "The installer couldn't start.",
+    );
   } finally {
     // The installer is only needed once.
     setup.delete().catchError((_) => setup);

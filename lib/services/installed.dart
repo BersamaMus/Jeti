@@ -2,32 +2,29 @@ import 'package:win32_registry/win32_registry.dart';
 
 import 'version.dart';
 
-/// An app as Windows has it installed.
+/// An app as it's installed, on Windows or Android.
 class InstalledApp {
-  InstalledApp({
-    required this.version,
-    required this.folder,
-    required this.allUsers,
-    required this.uninstallCommand,
-  });
+  InstalledApp({required this.version, required this.folder, required this.allUsers, required this.uninstallCommand});
 
   final Version? version;
 
-  /// The install folder, ending in a backslash.
+  /// The install folder, ending in a backslash. Windows only.
   final String? folder;
 
   /// True when it was installed for everyone (in Program Files, which needs
-  /// admin rights to update), false when just for this user.
+  /// admin rights to update), false when just for this user. Windows only.
   final bool allUsers;
+
+  /// Windows only; on Android, Android removes the app.
   final String? uninstallCommand;
 }
 
-/// Finds the app Inno Setup installed under [appId], or null when it isn't.
+/// Finds the Windows app Inno Setup installed under [appId], or null when it isn't.
 ///
 /// Inno Setup records each app it installs under
 /// ...\Uninstall\{AppId}_is1: in this user's registry when installed just for
 /// them, or the machine's when installed for everyone.
-InstalledApp? findInstalled(String appId) {
+InstalledApp? findInstalledWindows(String appId) {
   final path = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{$appId}_is1';
   for (final (root, allUsers) in [(CURRENT_USER, false), (LOCAL_MACHINE, true)]) {
     final RegistryKey key;

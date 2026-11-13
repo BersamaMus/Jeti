@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppColors.background in lib/theme.dart, behind Jeti while it starts. -->
+    <color name="jeti_background">#090C0A</color>
+    <!-- The icon's green tile, behind its jetty (tool/make_icon.dart). -->
+    <color name="ic_launcher_background">#4ADE80</color>
+</resources>

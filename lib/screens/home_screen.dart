@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/apps_controller.dart';
 import '../services/catalog.dart';
@@ -26,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     controller.confirmClose = _confirmClose;
+    controller.confirmAllowInstalls = _confirmAllowInstalls;
     controller.refresh();
     // Coming back to Jeti picks up apps installed or removed meanwhile.
     _lifecycle = AppLifecycleListener(onResume: controller.refreshInstalled);
@@ -56,19 +58,54 @@ class _HomeScreenState extends State<HomeScreen> {
     return result ?? false;
   }
 
+  /// Android's "Install unknown apps" setting, explained before Jeti opens it.
+  Future<bool> _confirmAllowInstalls() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Allow Jeti to install apps'),
+        content: const Text(
+          'Android asks you to allow this once. On the next screen, turn on '
+          'Allow from this source, then come back to Jeti.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not now')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Open settings')),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: ListenableBuilder(
-        listenable: controller,
-        builder: (context, _) => CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(child: _Centered(child: _Header(controller: controller))),
-            if (controller.jetiUpdate != null)
-              SliverToBoxAdapter(child: _Centered(child: _JetiUpdateBanner(controller: controller))),
-            ..._body(context),
-            const SliverToBoxAdapter(child: SizedBox(height: 32)),
-          ],
+    // Light status bar icons over Jeti's dark background, and the content
+    // drawn behind the bars (Android's default since Android 15).
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: Scaffold(
+        body: SafeArea(
+          bottom: false,
+          child: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _Centered(child: _Header(controller: controller)),
+                ),
+                if (controller.jetiUpdate != null)
+                  SliverToBoxAdapter(
+                    child: _Centered(child: _JetiUpdateBanner(controller: controller)),
+                  ),
+                ..._body(context),
+                SliverToBoxAdapter(child: SizedBox(height: 32 + MediaQuery.paddingOf(context).bottom)),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -96,7 +133,10 @@ class _HomeScreenState extends State<HomeScreen> {
       return [
         SliverFillRemaining(
           hasScrollBody: false,
-          child: Padding(padding: const EdgeInsets.all(32), child: Center(child: child)),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Center(child: child),
+          ),
         ),
       ];
     }
@@ -123,7 +163,10 @@ class _Centered extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 880),
-        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: child),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: isNarrow(context) ? 16 : 24),
+          child: child,
+        ),
       ),
     );
   }
@@ -137,6 +180,7 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final narrow = isNarrow(context);
     final updates = controller.updatable.length;
     final checking = controller.loading || controller.entries.any((e) => e.checking);
 
@@ -153,23 +197,42 @@ class _Header extends StatelessWidget {
       summary = "Everything's up to date";
     }
 
+    final updateButton = updates == 0
+        ? null
+        : FilledButton.icon(
+            onPressed: controller.updatable.every((e) => e.task != null) ? null : controller.updateAll,
+            icon: const Icon(Icons.download_rounded, size: 18),
+            label: Text(updates == 1 ? 'Update ${controller.updatable.first.app.title}' : 'Update all ($updates)'),
+          );
+    final iconSize = narrow ? 40.0 : 48.0;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 32, 0, 24),
+      padding: EdgeInsets.fromLTRB(0, narrow ? 20 : 32, 0, narrow ? 20 : 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.asset('assets/icon.png', width: 48, height: 48, filterQuality: FilterQuality.medium),
+                borderRadius: BorderRadius.circular(iconSize / 4),
+                child: Image.asset(
+                  'assets/icon.png',
+                  width: iconSize,
+                  height: iconSize,
+                  filterQuality: FilterQuality.medium,
+                ),
               ),
-              const SizedBox(width: 16),
+              SizedBox(width: narrow ? 12 : 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Jeti', style: theme.textTheme.headlineMedium),
+                    Text(
+                      'Jeti',
+                      style: narrow
+                          ? theme.textTheme.headlineMedium?.copyWith(fontSize: 24)
+                          : theme.textTheme.headlineMedium,
+                    ),
                     const SizedBox(height: 2),
                     Text(summary, style: theme.textTheme.bodyMedium),
                   ],
@@ -180,16 +243,13 @@ class _Header extends StatelessWidget {
                 onPressed: checking || controller.busy ? null : controller.refresh,
                 icon: const Icon(Icons.refresh_rounded),
               ),
-              if (updates > 0) ...[
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: controller.updatable.every((e) => e.task != null) ? null : controller.updateAll,
-                  icon: const Icon(Icons.download_rounded, size: 18),
-                  label: Text(updates == 1 ? 'Update ${controller.updatable.first.app.title}' : 'Update all ($updates)'),
-                ),
-              ],
+              if (updateButton != null && !narrow) ...[const SizedBox(width: 8), updateButton],
             ],
           ),
+          if (updateButton != null && narrow) ...[
+            const SizedBox(height: 16),
+            SizedBox(width: double.infinity, child: updateButton),
+          ],
           if (controller.catalogFromCache) ...[
             const SizedBox(height: 16),
             Text(
@@ -211,8 +271,38 @@ class _JetiUpdateBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final narrow = isNarrow(context);
     final progress = controller.jetiUpdateProgress;
     final error = controller.jetiUpdateError;
+
+    final text = Row(
+      children: [
+        const Icon(Icons.auto_awesome_rounded, color: AppColors.accent, size: 20),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Jeti ${controller.jetiUpdate!.version} is out', style: theme.textTheme.titleMedium),
+              if (error != null)
+                Text(error, style: theme.textTheme.bodySmall?.copyWith(color: AppColors.danger))
+              else if (progress != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: LinearProgressIndicator(value: progress, borderRadius: BorderRadius.circular(4)),
+                )
+              else
+                Text(controller.host.jetiUpdateNote, style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ],
+    );
+    final button = FilledButton(
+      onPressed: progress != null || controller.busy ? null : controller.updateJeti,
+      child: const Text('Update Jeti'),
+    );
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Container(
@@ -222,34 +312,15 @@ class _JetiUpdateBanner extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.card),
           border: Border.all(color: AppColors.accentSoft),
         ),
-        child: Row(
-          children: [
-            const Icon(Icons.auto_awesome_rounded, color: AppColors.accent, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: narrow
+            ? Column(crossAxisAlignment: CrossAxisAlignment.end, children: [text, const SizedBox(height: 12), button])
+            : Row(
                 children: [
-                  Text('Jeti ${controller.jetiUpdate!.version} is out', style: theme.textTheme.titleMedium),
-                  if (error != null)
-                    Text(error, style: theme.textTheme.bodySmall?.copyWith(color: AppColors.danger))
-                  else if (progress != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: LinearProgressIndicator(value: progress, borderRadius: BorderRadius.circular(4)),
-                    )
-                  else
-                    Text("It updates in a moment and opens again.", style: theme.textTheme.bodySmall),
+                  Expanded(child: text),
+                  const SizedBox(width: 12),
+                  button,
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            FilledButton(
-              onPressed: progress != null || controller.busy ? null : controller.updateJeti,
-              child: const Text('Update Jeti'),
-            ),
-          ],
-        ),
       ),
     );
   }

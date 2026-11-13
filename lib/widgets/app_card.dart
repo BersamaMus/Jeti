@@ -7,7 +7,8 @@ import '../services/apps_controller.dart';
 import '../theme.dart';
 
 /// One app: its icon and name, what's installed and what's new, and the one
-/// button that matters (Install, Update or Open).
+/// button that matters (Install, Update or Open). On a phone the button sits
+/// under the text, which would be squeezed beside it.
 class AppCard extends StatelessWidget {
   const AppCard({super.key, required this.entry, required this.controller});
 
@@ -18,62 +19,87 @@ class AppCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final app = entry.app;
+    final narrow = isNarrow(context);
+
+    final heading = [
+      Wrap(
+        spacing: 10,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(app.title, style: theme.textTheme.titleLarge),
+          _StatusChip(entry: entry),
+        ],
+      ),
+      const SizedBox(height: 4),
+      Text(app.tagline, style: theme.textTheme.bodyMedium, maxLines: narrow ? 3 : 2, overflow: TextOverflow.ellipsis),
+    ];
+    final button = _MainButton(entry: entry, controller: controller);
+    final menu = _MoreMenu(entry: entry, controller: controller);
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(narrow ? 16 : 20),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(
-          color: entry.status == AppStatus.updateAvailable ? AppColors.accentSoft : AppColors.divider,
-        ),
+        border: Border.all(color: entry.status == AppStatus.updateAvailable ? AppColors.accentSoft : AppColors.divider),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _AppIcon(entry: entry),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
+      child: narrow
+          ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(app.title, style: theme.textTheme.titleLarge),
-                    _StatusChip(entry: entry),
+                    _AppIcon(entry: entry, size: 52),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: heading),
+                    ),
+                    menu,
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(app.tagline, style: theme.textTheme.bodyMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 10),
-                _Detail(entry: entry),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(child: _Detail(entry: entry)),
+                    const SizedBox(width: 12),
+                    button,
+                  ],
+                ),
               ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _MainButton(entry: entry, controller: controller),
-                _MoreMenu(entry: entry, controller: controller),
+                _AppIcon(entry: entry, size: 64),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ...heading,
+                      const SizedBox(height: 10),
+                      _Detail(entry: entry),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [button, menu]),
+                ),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }
 
 class _AppIcon extends StatelessWidget {
-  const _AppIcon({required this.entry});
+  const _AppIcon({required this.entry, required this.size});
 
   final AppEntry entry;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -82,14 +108,14 @@ class _AppIcon extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         entry.app.title.characters.first,
-        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.accent),
+        style: TextStyle(fontSize: size * 0.44, fontWeight: FontWeight.w800, color: AppColors.accent),
       ),
     );
     final icon = entry.icon;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(AppRadius.icon),
+      borderRadius: BorderRadius.circular(AppRadius.icon * size / 64),
       child: SizedBox.square(
-        dimension: 64,
+        dimension: size,
         child: icon == null
             ? letter
             : Image.file(
@@ -197,7 +223,8 @@ class _Detail extends StatelessWidget {
   static String _size(int bytes) {
     if (bytes <= 0) return '';
     final mb = bytes / (1024 * 1024);
-    return mb >= 10 ? '${mb.round()} MB' : '${mb.toStringAsFixed(1)} MB';
+    // A no-break space keeps "59 MB" on one line.
+    return mb >= 10 ? '${mb.round()} MB' : '${mb.toStringAsFixed(1)} MB';
   }
 }
 
@@ -220,7 +247,7 @@ class _MainButton extends StatelessWidget {
         child: const Text('Install'),
       ),
       AppStatus.upToDate => FilledButton.tonal(
-        onPressed: busy || entry.exePath == null ? null : () => controller.open(entry),
+        onPressed: busy || !controller.canOpen(entry) ? null : () => controller.open(entry),
         child: const Text('Open'),
       ),
       AppStatus.checking => const FilledButton(onPressed: null, child: Text('Checking')),
@@ -228,7 +255,7 @@ class _MainButton extends StatelessWidget {
   }
 }
 
-enum _Action { open, notes, folder, website, release, uninstall }
+enum _Action { open, notes, folder, appInfo, website, release, uninstall }
 
 class _MoreMenu extends StatelessWidget {
   const _MoreMenu({required this.entry, required this.controller});
@@ -242,12 +269,11 @@ class _MoreMenu extends StatelessWidget {
     final latest = entry.latest;
     final idle = entry.task == null;
 
-    PopupMenuItem<_Action> item(_Action value, IconData icon, String label, {bool enabled = true}) =>
-        PopupMenuItem(
-          value: value,
-          enabled: enabled,
-          child: Row(children: [Icon(icon, size: 18), const SizedBox(width: 12), Text(label)]),
-        );
+    PopupMenuItem<_Action> item(_Action value, IconData icon, String label, {bool enabled = true}) => PopupMenuItem(
+      value: value,
+      enabled: enabled,
+      child: Row(children: [Icon(icon, size: 18), const SizedBox(width: 12), Text(label)]),
+    );
 
     return PopupMenuButton<_Action>(
       tooltip: 'More',
@@ -255,13 +281,14 @@ class _MoreMenu extends StatelessWidget {
       onSelected: (action) => _run(context, action),
       itemBuilder: (_) => [
         if (installed && entry.status != AppStatus.upToDate)
-          item(_Action.open, Icons.open_in_new_rounded, 'Open', enabled: idle && entry.exePath != null),
+          item(_Action.open, Icons.open_in_new_rounded, 'Open', enabled: idle && controller.canOpen(entry)),
         if (latest != null) item(_Action.notes, Icons.notes_rounded, "What's new in ${latest.version}"),
         if (installed && entry.installed!.folder != null)
           item(_Action.folder, Icons.folder_open_rounded, 'Show install folder'),
+        if (controller.hasAppInfo(entry)) item(_Action.appInfo, Icons.info_outline_rounded, 'App info'),
         if (entry.app.page != null) item(_Action.website, Icons.language_rounded, 'Page on bersamamus.com'),
         if (latest != null) item(_Action.release, Icons.code_rounded, 'Release on GitHub'),
-        if (installed && entry.installed!.uninstallCommand != null) ...[
+        if (controller.canUninstall(entry)) ...[
           const PopupMenuDivider(),
           item(_Action.uninstall, Icons.delete_outline_rounded, 'Uninstall', enabled: idle),
         ],
@@ -277,6 +304,8 @@ class _MoreMenu extends StatelessWidget {
         _showNotes(context);
       case _Action.folder:
         Process.start('explorer.exe', [entry.installed!.folder!]);
+      case _Action.appInfo:
+        controller.openAppInfo(entry);
       case _Action.website:
         launchUrl(Uri.parse(entry.app.page!));
       case _Action.release:

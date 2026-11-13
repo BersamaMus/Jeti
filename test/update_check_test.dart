@@ -4,6 +4,7 @@ import 'package:jeti/services/catalog.dart';
 import 'package:jeti/services/installed.dart';
 import 'package:jeti/services/releases.dart';
 import 'package:jeti/services/version.dart';
+import 'package:jeti/services/windows_host.dart';
 
 void main() {
   group('Version', () {
@@ -49,6 +50,34 @@ void main() {
 
     test('says so when the installer is missing', () {
       expect(() => parseRelease(json, 'Vessel-Setup.exe'), throwsA(isA<ReleaseException>()));
+    });
+  });
+
+  group('Catalog.parse', () {
+    const body = '''{
+      "version": 1,
+      "apps": [{"id": "blimp", "title": "Blimp", "tagline": "Music", "repo": "BersamaMus/Blimp",
+                "appId": "X", "installer": "Blimp-Setup.exe", "exe": "blimp.exe"}],
+      "android": [{"id": "blimp", "title": "Blimp", "tagline": "Music", "repo": "BersamaMus/Blimp",
+                   "package": "com.blimp.app", "apk": "Blimp.apk"}]
+    }''';
+
+    test('reads the Windows apps by default, as Jeti 1.0 does', () {
+      final app = Catalog.parse(body).single;
+      expect(app.installer, 'Blimp-Setup.exe');
+      expect(app.exe, 'blimp.exe');
+      expect(app.package, isNull);
+    });
+
+    test('reads the Android apps, with their APK as the download', () {
+      final app = Catalog.parse(body, list: 'android').single;
+      expect(app.installer, 'Blimp.apk');
+      expect(app.package, 'com.blimp.app');
+      expect(app.appId, isNull);
+    });
+
+    test('a catalog from before the Android list has no Android apps', () {
+      expect(Catalog.parse('{"version": 1, "apps": []}', list: 'android'), isEmpty);
     });
   });
 
@@ -101,7 +130,8 @@ void main() {
     });
 
     test('finds the exe in the install folder', () {
-      expect(entry(installed: '1.0.0').exePath, r'C:\Apps\Blimp\blimp.exe');
+      final e = entry(installed: '1.0.0');
+      expect(exePathIn(e.installed!.folder, e.app.exe), r'C:\Apps\Blimp\blimp.exe');
     });
   });
 }

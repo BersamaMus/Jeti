@@ -2,13 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 /// Where Jeti finds the apps it offers: the website builds it from its project
 /// pages (src/pages/apps.json.ts in the website).
 const defaultCatalog = 'https://bersamamus.com/apps.json';
 
-/// One app from the catalog.
+/// One app from the catalog: a Windows app (with [appId] and [exe]) from its
+/// "apps" list, or an Android one (with [package]) from its "android" list.
 class CatalogApp {
   CatalogApp({
     required this.id,
@@ -17,9 +19,10 @@ class CatalogApp {
     required this.icon,
     required this.page,
     required this.repo,
-    required this.appId,
     required this.installer,
-    required this.exe,
+    this.appId,
+    this.exe,
+    this.package,
   });
 
   factory CatalogApp.fromJson(Map<String, dynamic> json) => CatalogApp(
@@ -29,9 +32,10 @@ class CatalogApp {
     icon: json['icon'] as String?,
     page: json['page'] as String?,
     repo: json['repo'] as String,
-    appId: json['appId'] as String,
-    installer: json['installer'] as String,
-    exe: json['exe'] as String,
+    installer: (json['installer'] ?? json['apk']) as String,
+    appId: json['appId'] as String?,
+    exe: json['exe'] as String?,
+    package: json['package'] as String?,
   );
 
   final String id;
@@ -47,14 +51,17 @@ class CatalogApp {
   /// The GitHub repo its releases are in, as owner/name.
   final String repo;
 
-  /// Its Inno Setup AppId, without braces.
-  final String appId;
-
-  /// The release asset to download, e.g. Blimp-Setup.exe.
+  /// The release asset to download, e.g. Blimp-Setup.exe or Blimp.apk.
   final String installer;
 
-  /// Its exe's file name in the install folder.
-  final String exe;
+  /// Windows: its Inno Setup AppId, without braces.
+  final String? appId;
+
+  /// Windows: its exe's file name in the install folder.
+  final String? exe;
+
+  /// Android: its application ID, e.g. com.blimp.app.
+  final String? package;
 }
 
 /// The catalog and where it came from.
@@ -67,18 +74,18 @@ class Catalog {
   /// the last time it was.
   final bool fromCache;
 
-  static List<CatalogApp> parse(String body) {
+  /// The apps in [list]: "apps" (Windows, the list Jeti 1.0 reads) or "android".
+  static List<CatalogApp> parse(String body, {String list = 'apps'}) {
     final json = jsonDecode(body) as Map<String, dynamic>;
-    return [
-      for (final app in json['apps'] as List) CatalogApp.fromJson(app as Map<String, dynamic>),
-    ];
+    return [for (final app in json[list] as List? ?? const []) CatalogApp.fromJson(app as Map<String, dynamic>)];
   }
 
   /// Fetches the catalog from [source], a URL or a file path (for testing
-  /// against a local build of the website). Falls back to the saved copy when
-  /// that fails, and throws only when there isn't one either.
-  static Future<Catalog> load(String source) async {
-    final cache = File('${(await getApplicationSupportDirectory()).path}\\catalog.json');
+  /// against a local build of the website), and reads [list] from it. Falls
+  /// back to the saved copy when that fails, and throws only when there isn't
+  /// one either.
+  static Future<Catalog> load(String source, {String list = 'apps'}) async {
+    final cache = File(p.join((await getApplicationSupportDirectory()).path, 'catalog.json'));
     try {
       final String body;
       if (source.startsWith('http://') || source.startsWith('https://')) {
@@ -88,12 +95,17 @@ class Catalog {
       } else {
         body = await File(source).readAsString();
       }
-      final apps = parse(body);
-      await cache.writeAsString(body).catchError((_) => cache);
+      final apps = parse(body, list: list);
+      try {
+        await cache.parent.create(recursive: true);
+        await cache.writeAsString(body);
+      } catch (_) {
+        // Not saving it only matters offline; the fresh list is still good.
+      }
       return Catalog(apps, fromCache: false);
     } catch (_) {
       if (!await cache.exists()) rethrow;
-      return Catalog(parse(await cache.readAsString()), fromCache: true);
+      return Catalog(parse(await cache.readAsString(), list: list), fromCache: true);
     }
   }
 }
